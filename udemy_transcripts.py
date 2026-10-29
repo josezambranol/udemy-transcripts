@@ -46,6 +46,7 @@ DEFAULT_BASE_URL = "https://www.udemy.com"
 BASE_URL = "https://www.udemy.com"
 API = f"{BASE_URL}/api-2.0"
 PROFILE_DIR = Path.home() / ".cache" / "udemy-transcripts-profile"
+AUTH_TOKEN = None
 
 
 def set_portal(url_or_subdomain):
@@ -63,6 +64,17 @@ def set_portal(url_or_subdomain):
     domain = parsed.netloc or parsed.path
     BASE_URL = f"https://{domain}".rstrip("/")
     API = f"{BASE_URL}/api-2.0"
+
+
+def set_token(token_str):
+    """Normaliza y configura el token de autorización Bearer."""
+    global AUTH_TOKEN
+    if not token_str:
+        return
+    token = token_str.strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    AUTH_TOKEN = token
 
 
 def print_banner():
@@ -89,14 +101,21 @@ def goto_cf(page, url, wait=25):
 
 def api_get(page, url):
     """fetch same-origin desde la página real → atraviesa Cloudflare, da JSON."""
+    headers_dict = {"Accept": "application/json"}
+    if AUTH_TOKEN:
+        headers_dict["Authorization"] = f"Bearer {AUTH_TOKEN}"
+
     txt = page.evaluate(
-        """async (u) => {
-            const r = await fetch(u, {headers: {'Accept': 'application/json'},
-                                      credentials: 'include'});
-            return await r.text();
-        }""", url)
+        """async ({u, h}) => {
+            try {
+                const r = await fetch(u, {headers: h, credentials: 'include'});
+                return await r.text();
+            } catch (err) {
+                return null;
+            }
+        }""", {"u": url, "h": headers_dict})
     try:
-        return json.loads(txt)
+        return json.loads(txt) if txt else None
     except (json.JSONDecodeError, TypeError):
         return None
 
@@ -109,6 +128,13 @@ def _logged_user(page):
 
 
 def ensure_login(page):
+    if AUTH_TOKEN:
+        me = _logged_user(page)
+        if me:
+            portal_name = "Udemy Business" if BASE_URL != DEFAULT_BASE_URL else "Udemy"
+            print(f"  ✔ Sesión activa autenticada por Token ({portal_name}): {me.get('title') or me.get('id')}")
+            return True
+
     goto_cf(page, f"{BASE_URL}/")
     me = _logged_user(page)
     if me:
@@ -609,10 +635,11 @@ def main():
         """)
 
         if args.token:
+            set_token(args.token)
             domain = urllib.parse.urlparse(BASE_URL).netloc
             cookies_to_add = [
-                {"name": "access_token", "value": args.token, "domain": f".{domain}", "path": "/", "secure": True},
-                {"name": "access_token", "value": args.token, "domain": ".udemy.com", "path": "/", "secure": True}
+                {"name": "access_token", "value": AUTH_TOKEN, "domain": f".{domain}", "path": "/", "secure": True},
+                {"name": "access_token", "value": AUTH_TOKEN, "domain": ".udemy.com", "path": "/", "secure": True}
             ]
             context.add_cookies(cookies_to_add)
 
