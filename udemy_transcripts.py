@@ -18,9 +18,12 @@ import html
 import json
 import os
 import re
+import socket
+import subprocess
 import sys
 import textwrap
 import time
+import urllib.parse
 from pathlib import Path
 
 # Compatibilidad de caracteres UTF-8 en consola de Windows
@@ -569,11 +572,76 @@ def process_course_download(page, context, course_arg, options):
     print("=" * 76 + "\n")
 
 
+def is_port_open(port=9222, host="127.0.0.1"):
+    """Verifica si el puerto de depuración remota de Chrome está activo."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.8)
+            return s.connect_ex((host, port)) == 0
+    except Exception:
+        return False
+
+
+def launch_or_connect_chrome(portal_url="https://seti.udemy.com"):
+    """
+    Verifica si Google Chrome está en modo depuración (puerto 9222).
+    Si no lo está, ofrece al usuario reiniciar Chrome con su perfil
+    de josedaniellunamarimon@gmail.com (Profile 1) para conectar en vivo.
+    """
+    if is_port_open(9222):
+        print("  ✔ Puerto de depuración 9222 detectado en Google Chrome.")
+        return True
+
+    chrome_exe = Path("C:/Program Files/Google/Chrome/Application/chrome.exe")
+    if not chrome_exe.exists():
+        chrome_exe = Path("C:/Program Files (x86)/Google/Chrome/Application/chrome.exe")
+    if not chrome_exe.exists():
+        return False
+
+    print("\n" + "=" * 76)
+    print("  🌐 CONECTOR CON TU GOOGLE CHROME (josedaniellunamarimon@gmail.com)")
+    print("=" * 76)
+    print("  Para que el script pueda tomar tu sesión activa de SETI Udemy:")
+    print("  Google Chrome debe iniciarse con el puerto de conexión (9222).")
+    print("-" * 76)
+    print("  [1] 🔄 Reiniciar Chrome automáticamente ahora en modo conectado")
+    print("  [2] ✋ Ya cerré Chrome manualmente, ábrelo en modo conectado")
+    print("  [3] ⏩ Continuar en navegador independiente")
+    print("=" * 76)
+    opc = input(">> Selecciona una opción (1-3, default 1): ").strip() or "1"
+
+    if opc == "1":
+        print("  Cerrando Google Chrome para reactivarlo con conexión...")
+        os.system("taskkill /F /IM chrome.exe >nul 2>&1")
+        time.sleep(1.5)
+    elif opc == "3":
+        return False
+
+    args = [
+        str(chrome_exe),
+        "--remote-debugging-port=9222",
+        "--profile-directory=Profile 1",
+        portal_url
+    ]
+    subprocess.Popen(args)
+    print("  Iniciando Google Chrome con tu perfil...")
+    for _ in range(12):
+        time.sleep(0.5)
+        if is_port_open(9222):
+            print("  ✔ ¡Google Chrome conectado exitosamente!")
+            return True
+    return False
+
+
 def main():
     ap = argparse.ArgumentParser(description="Transcripciones de un curso de Udemy.")
     ap.add_argument("course", nargs="?", help="URL del curso, slug o course_id numérico")
     ap.add_argument("-p", "--portal", default=None,
                     help="Subdominio o URL corporativa de Udemy Business (ej: seti o https://seti.udemy.com)")
+    ap.add_argument("--chrome", action="store_true",
+                    help="conecta automáticamente con tu Google Chrome en vivo (josedaniellunamarimon@gmail.com)")
+    ap.add_argument("--cdp", default=None, nargs="?", const="http://localhost:9222",
+                    help="conecta directamente a tu Google Chrome abierto en puerto de depuración")
     ap.add_argument("--list", action="store_true", dest="do_list",
                     help="lista tus cursos suscritos y termina")
     ap.add_argument("--token", default=os.environ.get("UDEMY_TOKEN"),
@@ -612,6 +680,10 @@ def main():
         set_portal(args.portal)
     elif args.course and ".udemy.com" in args.course:
         set_portal(args.course)
+
+    if args.chrome:
+        args.cdp = "http://localhost:9222"
+        launch_or_connect_chrome(BASE_URL)
 
     # Detectar Google Chrome oficial para máxima compatibilidad con SSO y Cloudflare
     chrome_exe = Path("C:/Program Files/Google/Chrome/Application/chrome.exe")

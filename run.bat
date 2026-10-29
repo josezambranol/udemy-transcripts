@@ -1,22 +1,23 @@
 @echo off
 chcp 65001 >nul
-title Udemy Transcripts Pro - Centro de Estudio y Transcripción
+title Udemy Transcripts Pro - Centro de Estudio
 cd /d "%~dp0"
 
 echo ======================================================================
-echo             UDEMY TRANSCRIPTS PRO - CENTRO DE ESTUDIO
+echo       🎓 UDEMY TRANSCRIPTS PRO — CENTRO DE ESTUDIO INTERACTIVO 🎓
 echo ======================================================================
 echo.
 
 set "PY_EXE=python"
-if exist "venv\Scripts\python.exe" (
-    set "PY_EXE=venv\Scripts\python.exe"
-) else if exist "%LOCALAPPDATA%\udemy-transcripts\venv\Scripts\python.exe" (
+if exist "%LOCALAPPDATA%\udemy-transcripts\venv\Scripts\python.exe" (
     set "PY_EXE=%LOCALAPPDATA%\udemy-transcripts\venv\Scripts\python.exe"
+) else if exist "venv\Scripts\python.exe" (
+    set "PY_EXE=venv\Scripts\python.exe"
 )
 
-echo Iniciando programa con %PY_EXE%...
-echo.
-"%PY_EXE%" udemy_transcripts.py
-echo.
-pause
+"%PY_EXE%" udemy_transcripts.py --portal seti --chrome %*
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [!] Finalizado o cancelado. Presiona cualquier tecla para cerrar...
+    pause >nul
+)
