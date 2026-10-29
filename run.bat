@@ -1,10 +1,10 @@
 @echo off
-chcp 65001 >nul
-title Udemy Transcripts Pro - Centro de Estudio
+setlocal
 cd /d "%~dp0"
+title Udemy Transcripts Pro - Centro de Estudio
 
 echo ======================================================================
-echo       🎓 UDEMY TRANSCRIPTS PRO — CENTRO DE ESTUDIO INTERACTIVO 🎓
+echo       UDEMY TRANSCRIPTS PRO - CENTRO DE ESTUDIO INTERACTIVO
 echo ======================================================================
 echo.
 

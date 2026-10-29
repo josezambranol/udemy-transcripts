@@ -661,8 +661,6 @@ def main():
                     help="conserva marcas de tiempo en formato [MM:SS]")
     ap.add_argument("--convert-local", default=None,
                     help="convierte una carpeta descargada previamente a HTML y Markdown")
-    ap.add_argument("--cdp", default=None, nargs="?", const="http://localhost:9222",
-                    help="conecta directamente a tu Google Chrome abierto en puerto de depuración")
     ap.add_argument("--width", type=int, default=100,
                     help="ancho de línea del texto; 0 = sin ajustar (default 100)")
     ap.add_argument("--headless", action="store_true",
