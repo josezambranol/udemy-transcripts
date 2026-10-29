@@ -151,3 +151,11 @@ def convert_local_course_directory(course_dir_path):
 
     print(f"  🎉 ¡Conversión completada con éxito para '{course_title}'!\n")
     return True
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        target_dir = sys.argv[1]
+        convert_local_course_directory(target_dir)
+    else:
+        print("Uso: python converter.py <ruta_a_la_carpeta_del_curso>")
