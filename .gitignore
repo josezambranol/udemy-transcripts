@@ -1,0 +1,46 @@
+# ==============================================================================
+# UDEMY TRANSCRIPTS PRO — .gitignore
+# ==============================================================================
+
+# Entornos virtuales de Python
+.venv/
+venv/
+ENV/
+env/
+
+# Caché de Python y bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Sesiones de navegador, cookies y credenciales sensibles (¡NUNCA subir a GitHub!)
+.cache/
+*profile*/
+*.token
+*.cookie
+*.cookies
+*.session
+*.env
+.env*
+credentials*.json
+secrets*.json
+
+# Transcripciones descargadas y datos de cursos (material con derechos de autor)
+*.txt
+!requirements.txt
+*.vtt
+course_data.js
+FULL_COURSE.md
+index.html
+Udemy-Transcripts/
+courses_output/
+downloads/
+Notas_*.md
+
+# Atajos de Windows, binarios y artefactos locales
+*.lnk
+*.log
+*.sqlite3
+*.db
+.playwright/
