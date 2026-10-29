@@ -593,6 +593,8 @@ def main():
                     help="conserva marcas de tiempo en formato [MM:SS]")
     ap.add_argument("--convert-local", default=None,
                     help="convierte una carpeta descargada previamente a HTML y Markdown")
+    ap.add_argument("--cdp", default=None, nargs="?", const="http://localhost:9222",
+                    help="conecta directamente a tu Google Chrome abierto en puerto de depuración")
     ap.add_argument("--width", type=int, default=100,
                     help="ancho de línea del texto; 0 = sin ajustar (default 100)")
     ap.add_argument("--headless", action="store_true",
@@ -616,23 +618,39 @@ def main():
     channel = "chrome" if chrome_exe.exists() else None
 
     with sync_playwright() as pw:
-        context = pw.chromium.launch_persistent_context(
-            str(PROFILE_DIR),
-            headless=args.headless,
-            channel=channel,
-            viewport={"width": 1280, "height": 850},
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--no-first-run",
-                "--no-service-autorun"
-            ]
-        )
+        context = None
+        browser = None
+        connected_via_cdp = False
 
-        context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            window.chrome = window.chrome || { runtime: {} };
-        """)
+        if args.cdp:
+            try:
+                print(f"  🔗 Conectando directamente a tu Google Chrome abierto en {args.cdp}...")
+                browser = pw.chromium.connect_over_cdp(args.cdp)
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                connected_via_cdp = True
+                print("  ✔ ¡Conectado exitosamente a tu navegador Google Chrome en vivo!")
+            except Exception as e:
+                print(f"  [!] No se pudo conectar a Chrome por CDP ({e}).")
+                print("      Iniciando navegador dedicado con soporte de Chrome...")
+
+        if not context:
+            context = pw.chromium.launch_persistent_context(
+                str(PROFILE_DIR),
+                headless=args.headless,
+                channel=channel,
+                viewport={"width": 1280, "height": 850},
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--no-first-run",
+                    "--no-service-autorun"
+                ]
+            )
+
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.chrome = window.chrome || { runtime: {} };
+            """)
 
         if args.token:
             set_token(args.token)
@@ -641,20 +659,30 @@ def main():
                 {"name": "access_token", "value": AUTH_TOKEN, "domain": f".{domain}", "path": "/", "secure": True},
                 {"name": "access_token", "value": AUTH_TOKEN, "domain": ".udemy.com", "path": "/", "secure": True}
             ]
-            context.add_cookies(cookies_to_add)
+            try:
+                context.add_cookies(cookies_to_add)
+            except Exception:
+                pass
 
         page = context.pages[0] if context.pages else context.new_page()
+
+        def safe_cleanup():
+            if not connected_via_cdp:
+                try:
+                    context.close()
+                except Exception:
+                    pass
 
         if args.do_list:
             ensure_login(page)
             list_courses(page)
-            context.close()
+            safe_cleanup()
             return
 
         if not args.course:
             course_arg, config = interactive_terminal_flow(page)
             if not course_arg:
-                context.close()
+                safe_cleanup()
                 return
             options = {
                 "out": args.out,
@@ -678,7 +706,7 @@ def main():
             }
 
         process_course_download(page, context, course_arg, options)
-        context.close()
+        safe_cleanup()
 
 
 if __name__ == "__main__":
