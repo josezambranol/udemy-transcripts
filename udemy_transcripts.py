@@ -42,8 +42,27 @@ from html_generator import generate_interactive_html, extract_key_points
 from markdown_generator import generate_course_markdown
 from converter import convert_local_course_directory
 
-API = "https://www.udemy.com/api-2.0"
+DEFAULT_BASE_URL = "https://www.udemy.com"
+BASE_URL = "https://www.udemy.com"
+API = f"{BASE_URL}/api-2.0"
 PROFILE_DIR = Path.home() / ".cache" / "udemy-transcripts-profile"
+
+
+def set_portal(url_or_subdomain):
+    """Configura dinámicamente el portal base (soporta Udemy Business como seti.udemy.com)."""
+    global BASE_URL, API
+    if not url_or_subdomain:
+        return
+    url = url_or_subdomain.strip()
+    if not url.startswith("http"):
+        if "." in url:
+            url = f"https://{url}"
+        else:
+            url = f"https://{url}.udemy.com"
+    parsed = urllib.parse.urlparse(url)
+    domain = parsed.netloc or parsed.path
+    BASE_URL = f"https://{domain}".rstrip("/")
+    API = f"{BASE_URL}/api-2.0"
 
 
 def print_banner():
@@ -55,11 +74,15 @@ def print_banner():
     print()
 
 
-def goto_cf(page, url, wait=20):
-    """Navega y espera a que Cloudflare resuelva su challenge si aparece."""
-    page.goto(url, wait_until="domcontentloaded")
+def goto_cf(page, url, wait=25):
+    """Navega de forma no bloqueante y espera a que Cloudflare resuelva su challenge si aparece."""
+    try:
+        page.goto(url, wait_until="commit", timeout=25000)
+    except Exception:
+        pass
     for _ in range(wait):
-        if "just a moment" not in (page.title() or "").lower():
+        t = (page.title() or "").lower()
+        if "just a moment" not in t and "un momento" not in t and "moment" not in t:
             return
         time.sleep(1)
 
@@ -86,18 +109,36 @@ def _logged_user(page):
 
 
 def ensure_login(page):
-    goto_cf(page, "https://www.udemy.com/")
+    goto_cf(page, f"{BASE_URL}/")
     me = _logged_user(page)
     if me:
-        print(f"  ✓ Sesión activa detectada: {me.get('title') or me.get('id')}")
+        portal_name = "Udemy Business" if BASE_URL != DEFAULT_BASE_URL else "Udemy"
+        print(f"  ✔ Sesión activa detectada ({portal_name}): {me.get('title') or me.get('id')}")
         return True
-    print("\n▶ Inicia sesión en la ventana de Chromium que se abrió.")
-    input("  Cuando ya estés dentro de tu cuenta en Udemy, vuelve aquí y pulsa ENTER… ")
-    goto_cf(page, "https://www.udemy.com/")
+
+    print(f"\n▶ Inicia sesión en la ventana del navegador ({BASE_URL}).")
+    if BASE_URL != DEFAULT_BASE_URL:
+        print(f"  🏢 Portal Corporativo: {BASE_URL}")
+    else:
+        print("  💡 Si usas cuenta de empresa (ej. seti.udemy.com), puedes navegar a tu portal en la ventana.")
+    print("  ⚠️ Si aparece la pantalla de verificación ('Un momento...' / 'Verify you are human'),")
+    print("     marca la casilla en la ventana para continuar.")
+    input("\n  Cuando ya estés dentro de tu cuenta en Udemy, vuelve aquí y pulsa ENTER… ")
+
+    # Si el usuario navegó a un portal corporativo en la ventana, sincronizarlo
+    try:
+        current_url = page.url
+        if ".udemy.com" in current_url:
+            set_portal(current_url)
+    except Exception:
+        pass
+
+    goto_cf(page, f"{BASE_URL}/")
     me = _logged_user(page)
     if not me:
-        sys.exit("✗ No detecto sesión iniciada. Vuelve a intentarlo.")
-    print(f"  ✓ Sesión activa detectada: {me.get('title') or me.get('id')}")
+        sys.exit("✗ No detecto sesión iniciada. Vuelve a intentarlo o pasa tu token con --token.")
+    portal_name = "Udemy Business" if BASE_URL != DEFAULT_BASE_URL else "Udemy"
+    print(f"  ✔ Sesión activa detectada ({portal_name}): {me.get('title') or me.get('id')}")
     return True
 
 
@@ -144,7 +185,7 @@ def resolve_course_id(page, arg):
                 return str(c["id"])
         url = data.get("next")
     # 2) fallback: parsear el HTML de la landing del curso
-    goto_cf(page, f"https://www.udemy.com/course/{slug}/")
+    goto_cf(page, f"{BASE_URL}/course/{slug}/")
     content = page.content()
     for pat in (r'data-clp-course-id="(\d+)"', r'courseId\D{0,8}(\d+)',
                 r'/course/(\d+)/'):
@@ -236,6 +277,8 @@ def interactive_terminal_flow(page):
     Flujo interactivo cuando no se pasan argumentos por consola.
     """
     print_banner()
+    if BASE_URL != DEFAULT_BASE_URL:
+        print(f"  🏢 Portal Corporativo Activo: {BASE_URL}")
     print("• Comprobando sesión activa en Udemy...")
     ensure_login(page)
 
@@ -503,6 +546,8 @@ def process_course_download(page, context, course_arg, options):
 def main():
     ap = argparse.ArgumentParser(description="Transcripciones de un curso de Udemy.")
     ap.add_argument("course", nargs="?", help="URL del curso, slug o course_id numérico")
+    ap.add_argument("-p", "--portal", default=None,
+                    help="Subdominio o URL corporativa de Udemy Business (ej: seti o https://seti.udemy.com)")
     ap.add_argument("--list", action="store_true", dest="do_list",
                     help="lista tus cursos suscritos y termina")
     ap.add_argument("--token", default=os.environ.get("UDEMY_TOKEN"),
@@ -534,18 +579,42 @@ def main():
         convert_local_course_directory(args.convert_local)
         return
 
-    # Si no se pasan argumentos, entrar en modo menú interactivo
+    # Sincronizar portal corporativo si se especificó
+    if args.portal:
+        set_portal(args.portal)
+    elif args.course and ".udemy.com" in args.course:
+        set_portal(args.course)
+
+    # Detectar Google Chrome oficial para máxima compatibilidad con SSO y Cloudflare
+    chrome_exe = Path("C:/Program Files/Google/Chrome/Application/chrome.exe")
+    channel = "chrome" if chrome_exe.exists() else None
+
     with sync_playwright() as pw:
         context = pw.chromium.launch_persistent_context(
-            str(PROFILE_DIR), headless=args.headless,
-            viewport={"width": 1280, "height": 800},
-            args=["--disable-blink-features=AutomationControlled"])
+            str(PROFILE_DIR),
+            headless=args.headless,
+            channel=channel,
+            viewport={"width": 1280, "height": 850},
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--no-first-run",
+                "--no-service-autorun"
+            ]
+        )
+
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            window.chrome = window.chrome || { runtime: {} };
+        """)
 
         if args.token:
-            context.add_cookies([{
-                "name": "access_token", "value": args.token,
-                "domain": ".udemy.com", "path": "/", "secure": True,
-            }])
+            domain = urllib.parse.urlparse(BASE_URL).netloc
+            cookies_to_add = [
+                {"name": "access_token", "value": args.token, "domain": f".{domain}", "path": "/", "secure": True},
+                {"name": "access_token", "value": args.token, "domain": ".udemy.com", "path": "/", "secure": True}
+            ]
+            context.add_cookies(cookies_to_add)
 
         page = context.pages[0] if context.pages else context.new_page()
 
