@@ -102,25 +102,38 @@ def goto_cf(page, url, wait=25):
         time.sleep(1)
 
 
-def api_get(page, url):
-    """fetch same-origin desde la página real → atraviesa Cloudflare, da JSON."""
+def api_get(page, url, retries=3):
+    """fetch same-origin desde la página real → atraviesa Cloudflare, da JSON de forma defensiva."""
     headers_dict = {"Accept": "application/json"}
     if AUTH_TOKEN:
         headers_dict["Authorization"] = f"Bearer {AUTH_TOKEN}"
 
-    txt = page.evaluate(
-        """async ({u, h}) => {
-            try {
-                const r = await fetch(u, {headers: h, credentials: 'include'});
-                return await r.text();
-            } catch (err) {
-                return null;
-            }
-        }""", {"u": url, "h": headers_dict})
-    try:
-        return json.loads(txt) if txt else None
-    except (json.JSONDecodeError, TypeError):
-        return None
+    for attempt in range(retries):
+        try:
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=4000)
+            except Exception:
+                pass
+
+            txt = page.evaluate(
+                """async ({u, h}) => {
+                    try {
+                        const r = await fetch(u, {headers: h, credentials: 'include'});
+                        return await r.text();
+                    } catch (err) {
+                        return null;
+                    }
+                }""", {"u": url, "h": headers_dict})
+            try:
+                return json.loads(txt) if txt else None
+            except (json.JSONDecodeError, TypeError):
+                return None
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(1.5)
+                continue
+            return None
+    return None
 
 
 def _logged_user(page):
@@ -138,7 +151,16 @@ def ensure_login(page):
             print(f"  ✔ Sesión activa autenticada por Token ({portal_name}): {me.get('title') or me.get('id')}")
             return True
 
+    # 1. Comprobar si la sesión ya está activa en la página actual sin recargar
+    me = _logged_user(page)
+    if me:
+        portal_name = "Udemy Business" if BASE_URL != DEFAULT_BASE_URL else "Udemy"
+        print(f"  ✔ Sesión activa detectada ({portal_name}): {me.get('title') or me.get('id')}")
+        return True
+
+    # 2. Si no, navegar al portal base
     goto_cf(page, f"{BASE_URL}/")
+    time.sleep(1)
     me = _logged_user(page)
     if me:
         portal_name = "Udemy Business" if BASE_URL != DEFAULT_BASE_URL else "Udemy"
@@ -162,8 +184,14 @@ def ensure_login(page):
     except Exception:
         pass
 
-    goto_cf(page, f"{BASE_URL}/")
+    # Pausa para que la página complete sus redirecciones de SSO/login
+    time.sleep(1.5)
     me = _logged_user(page)
+    if not me:
+        goto_cf(page, f"{BASE_URL}/")
+        time.sleep(1.5)
+        me = _logged_user(page)
+
     if not me:
         sys.exit("✗ No detecto sesión iniciada. Vuelve a intentarlo o pasa tu token con --token.")
     portal_name = "Udemy Business" if BASE_URL != DEFAULT_BASE_URL else "Udemy"
